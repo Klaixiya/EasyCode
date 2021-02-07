@@ -10,7 +10,7 @@ The normal workflw is like the:
 # initialize all arguments
 x0, P0 = x0, P0 
 record_list = [...]
-interior = Interior{T}(row, collumn)
+intr = Interior{T}(row, collumn)
 movement = Movement{T}(F, Q, B, u)
 Observation = Observation{T}(H, R)
 
@@ -30,7 +30,7 @@ now you can use the data product by the cycling
 =#
 module KalmanFilter
  
-export Kalmanfilter, Interior1d, Interior, Movement, Observation1d, Observation, predict_kalman, update_kalman!
+export Kalmanfilter,  Interior, Movement,  Observation,check_kalman,  predict_kalman, update_kalman!
 
 """
 abstract struct Kalmanfilter include 3 structures.
@@ -40,17 +40,8 @@ abstract struct Kalmanfilter include 3 structures.
     Observation: storage the transform from movement system to Observation and noise of Observation.
 """
 abstract type Kalmanfilter end
-
-"""
-Interior1d is simple version for Interior when the Observation is a value nor a vector.
-"""
-mutable struct Interior1d{T <: Real} <: Kalmanfilter
-    δ::T
-    S::T
-    K::Vector{T}
-
-end
-Interior1d(row::Int, T::DataType = Float64) = Interior1d{T}(0.0, 0.0, zeros(T, row))
+abstract type ClassicKalmanfilter <: Kalmanfilter end
+abstract type UnscentedKalmanfilter <: Kalmanfilter end
 
 """
 Interior explain how the estimation is done:
@@ -58,12 +49,12 @@ Interior explain how the estimation is done:
     S : pre-fit residual
     K : Optimal Kalman gain
 """
-mutable struct Interior{T <: Real} <: Kalmanfilter
+mutable struct Interior{T <: Real} <: ClassicKalmanfilter
     δ::Vector{T}
     S::Matrix{T}
     K::Matrix{T}
 end
-Interior(row::Int, column::Int, T::DataType = Float64) = Interior{T}(zeros(T, row), zeros(T, row, column), zeros(T, row, column))
+Interior(row::Int, column::Int, T::DataType = Float64) = Interior{T}(zeros(T, column), zeros(T, column, column), zeros(T, row, column))
 
 """
 Movement show how the system moves according to matrix (Linear System)
@@ -72,7 +63,7 @@ Movement show how the system moves according to matrix (Linear System)
     B : count the influence of Input u_k to the movement
     u : Input, maybe a control variable
 """
-mutable struct Movement{T <: Real} <: Kalmanfilter
+mutable struct Movement{T <: Real} <: ClassicKalmanfilter
     F::Matrix{T}
     Q::Matrix{T}
     B::Matrix{T}
@@ -82,31 +73,53 @@ end
 Movement(F::Matrix{T}, Q::Matrix{T}) where T <: Real = Movement(F, Q, zeros(T, size(Q)...), zeros(T, size(Q)[1]))
 
 """
-Observation1d is simple version for Observation when the Observation is a value nor a vector.
-"""
-mutable struct Observation1d{T <: Real} <: Kalmanfilter
-    H::Matrix{T}
-    R::T
-end
-Observation1d(H::Matrix{T}, R::T) where T <: Real = Observation1d{T}(H, R)
-
-"""
 Observation tells how the state of movement tranfer to Observation.
     H : Observation = H * x
     R : covariance of observing noise.
 """
-mutable struct Observation{T <: Real} <: Kalmanfilter
+mutable struct Observation{T <: Real} <: ClassicKalmanfilter
     H::Matrix{T}
     R::Matrix{T}
-    Observation(H, R) = (size(H)[2] == size(R)[1]) ? new{eltype(H)}(H, R) : error("Dimension does't match!")
+    Observation(H, R) = (size(H)[1] == size(R)[1]) ? new{eltype(H)}(H, R) : error("Dimension does't match!")
 end
-Observation(H::Matrix{T}, R::Matrix{T}) where T <: Real = Observation(H, R)
 
+"""
+check_kalman(x0::Vector{T}, P0::Matrix{T}, record::Vector{T}, intr::Interior{T}, move::Movement{T}, obsv::Observation{T})
+check out the argument of kalman filter.
+"""
+function check_kalman end
+
+function check_kalman(x0::Vector{T}, P0::Matrix{T}, record::Vector{T}, intr::Interior{T}, move::Movement{T}, obsv::Observation{T}) where T <: Real
+    move_dims = length(x0)
+    obsv_dims = length(record)
+
+    size(P0) == (move_dims, move_dims) || println("DimensionMissmatch : initial covariance P0 should have $(move_dims) rows and $(move_dims) columns")
+    size(move.F)[1] == move_dims || println("DimensionMissmatch : Movement struct should have $(move_dims) rows")
+    size(obsv.R)[1] == obsv_dims || println("DimensionMissmatch : Observation struct should have $(obsv_dims) rows")
+    size(intr.K)[1] == move_dims || println("DimensionMissmatch : Interior.K should have $(move_dims) rows")
+    size(obsv.H)[2] == move_dims || println("DimensionMissmatch : Observation.H should have $(move_dims) columns")
+    length(intr.δ) == obsv_dims || println("DimensionMissmatch : Interior struct should have $(move_dims) rows and $(obsv_dims) columns")
+end
+
+"""
+reset_kalman!(intr::Interior{T}, δ::Vector{T}, S::Matrix{T}, K::Matrix{T})
+update the argument of Interior
+"""
+function reset_kalman! end
+
+function reset_kalman!(intr::Interior{T}, δ::Vector{T}, S::Matrix{T}, K::Matrix{T}) where T <: Real
+    intr.δ = δ
+    intr.S = S
+    intr.K = K 
+end
 
 """
 x_predict, P_predict = predict_kalman(x_update, P_update, move)
 return the prediction of x and P when we know the movement infornmation.
 """
+
+function predict_kalman end
+
 function predict_kalman(x_update::Vector{T}, P_update::Matrix{T}, move::Movement{T}) where T <: Real
     x_predict = move.F * x_update + move.B * move.u
     P_predict = move.F * P_update * transpose(move.F) + move.Q
@@ -124,42 +137,20 @@ end
 
 """
 x_update, P_update = update_kalman!(x_predict, P_predict, record, obsv, Interior)
+return the update for x and P, at the same time, update the arguments of Interior.
+"""
+function update_kalman! end
 
-    return the update for x and P, at the same time, update the arguments of interior.
-    the Observation has just a value (record).
-"""
-function update_kalman!(x_predict::Vector{T}, P_predict::Matrix{T}, record::T, obsv::Observation1d{T}, interior::Interior1d{T}) where T <: Real
-    δ = record - (obsv.H * x_predict)[1]
-    S = (obsv.H * P_predict * transpose(obsv.H))[1] + obsv.R
-    K = (P_predict * transpose(obsv.H))[:, 1] / S
-    
-    interior.δ = δ
-    interior.S = S
-    interior.K = K
-    
-    I = eye(length(x_predict), T)
-    x_update = x_predict + K * δ
-    P_update = (I - K * obsv.H) * P_predict
-    
-    return x_update, P_update
-end
-
-"""
-x_update, P_update = update_kalman!(x_predict, P_predict, record, obsv, Interior)
-return the update for x and P, at the same time, update the arguments of interior.
-"""
-function update_kalman!(x_predict::Vector{T}, P_predict::Matrix{T}, record::Vector{T}, obsv::Observation{T}, Interior::Interior{T}) where T <: Real
+function update_kalman!(x_predict::Vector{T}, P_predict::Matrix{T}, record::Vector{T}, obsv::Observation{T}, intr::Interior{T}) where T <: Real
     δ = record - obsv.H * x_predict
     S = obsv.H * P_predict * transpose(obsv.H) + obsv.R
     K = P_predict * transpose(obsv.H) / S
     
-    Interior.δ = δ
-    Interior.S = S
-    Interior.K = K
+    reset_kalman!(intr, δ, S, K)
     
-    I = eye(Tlength(x_predict), T)
+    I = eye(length(x_predict), T)
     x_update = x_predict + K * δ
-    P_update = (I - K * H) * P_predict
+    P_update = (I - K * obsv.H) * P_predict
     
     return x_update, P_update
 end
