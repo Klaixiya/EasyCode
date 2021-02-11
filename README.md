@@ -1,10 +1,11 @@
 # EasyCode
 
 Something tiny and funny！
+Now the KalmanFilter.jl  include the Classic Kalman Filter and Unscented Kalman Filter. 
+
 
 ## Classic Kalman Filter
 
-Now the KalmanFilter.jl just include the Classic Kalman Filter, so it is limited. 
 
 All symbols are the same of   [wikipedia](https://en.wikipedia.org/wiki/Kalman_filter), so it is easy to contrast wiki when scanning the code.
 
