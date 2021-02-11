@@ -85,3 +85,96 @@ plot(p2, p3, p1, layout = (3, 1), dpi = 150, legend = false)
 
 ![simulation](images/simuliation.png)
 
+
+
+## Unscented Kalman Filter
+
+### Initialize the model
+
+```julia
+using Plots
+using Statistics
+using Distributions
+using LinearAlgebra
+
+x0 = [10., 0., 0., 1.]
+δt = 0.5
+σq = 0.01
+ω = 0.1
+F = [1.     δt      0.      0.  
+     -ω^2   1.      0.      0.
+     0.     0.      1.     δt
+     0.     0.      -ω^2   1.]
+
+Q = [0.25*δt^4  0.5*δt^3      0.      0.
+     0.5*δt^3     δt^2        0.      0.
+     0.           0.    0.25*δt^4  0.5*δt^3
+     0.           0.    0.5*δt^3     δt^2] * σq^2
+Ftransform(x::Vector{Float64}) = F*x
+Htransform(x::Vector{Float64}) = [√(x[1]^2 + x[3]^2), atan(x[3], x[1])]
+H_inverse(x::Vector{Float64}) = [x[1]*cos(x[2]), x[1]*sin(x[2])]
+σl = 0.5
+σθ = 0.05
+R = [σl^2  0.
+     0.   σθ^2]
+```
+
+
+
+### generate true trace and observed trace
+
+```julia
+Steps = 200
+pos = x0
+true_state = x0
+for i in 1:Steps
+    pos = F*pos + [0.5*δt^2, δt, 0., 0.] * rand(Normal(0., σq)) + [0., 0., 0.5*δt^2, δt] * rand(Normal(0., σq))
+    true_state = hcat(true_state, pos)
+end
+true_trace = true_state[[1, 3], :]
+
+observe_state = mapslices(Htransform, true_state, dims = 1)
+observe_state = observe_state + rand(MvNormal(R), Steps + 1)
+observe_trace = mapslices(H_inverse, observe_state, dims = 1)
+
+p1 = plot(true_trace[1, :], true_trace[2, :], label = "true trace")
+plot!(p1, observe_trace[1, :],observe_trace[2, :], label = "observe trace", dpi = 150, images
+```
+
+![true trace and observed trace](images/unscented kalman filter img0.png)
+
+
+
+### unscented kalman filter
+
+```julia
+include("KalmanFilter.jl")
+const kf = KalmanFilter
+
+sigma = kf.Sigma(1., 2., 2.)
+noise = kf.Noise(Q, R)
+
+x_update = [11.2, 0., 0., 1.2]
+P_update = [1.2  0.   0.   0.
+            0.  0.2   0.   0.
+            0.  0.    1.2  0.
+            0.  0.    0.   0.2]
+xlist = x0
+for i in 2:Steps+1
+    x_update, P_update, K = noise(x_update, P_update, observe_state[:, i], sigma, Ftransform, Htransform)
+    xlist = hcat(xlist, x_update)
+end
+
+plot!(p1, xlist[1, :], xlist[3, :], label = "filter trace", dpi = 150, legend = :topleft)
+```
+
+![compare filter trace](images/unscented kalman filter img1.png)
+
+
+
+*Let's see the errors of filter trace and observed trace*
+
+![error](images/unscented kalman filter img2.png)
+
+
+
