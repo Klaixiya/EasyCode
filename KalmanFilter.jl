@@ -10,7 +10,6 @@ The normal workflw is like the:
 # initialize all arguments
 x0, P0 = x0, P0 
 record_list = [...]
-intr = Interior{T}(row, collumn)
 movement = Movement{T}(F, Q, B, u)
 Observation = Observation{T}(H, R)
 
@@ -18,24 +17,26 @@ Observation = Observation{T}(H, R)
 x_update, P_update = x0, P0
 
 for record in record_list
-    x_predict, P_predict = predict_kalman(...)
+    x_predict, P_predict = movement(...)
     ...
     ...storage the argument you need, maybe push!(...)
     ...
-    x_update, P_update = update_kalman!(...)
+    x_update, P_update, K = observation(...)
 end
 
 now you can use the data product by the cycling
 ````
 =#
 module KalmanFilter
- 
-export Kalmanfilter,  Interior, Movement,  Observation,check_kalman,  predict_kalman, update_kalman!
 
+using  LinearAlgebra
+
+export Kalmanfilter, ClassicKalmanfilter, Movement,  Observation, check_kalman, Sigma, Noise
+
+const LAB = LinearAlgebra
 """
-abstract struct Kalmanfilter include 3 structures.
+abstract struct Kalmanfilter include 2 structures.
 
-    Interior : storage the filter Interior arguments
     Movement : storage the Linear system movement arguments
     Observation: storage the transform from movement system to Observation and noise of Observation.
 """
@@ -43,18 +44,6 @@ abstract type Kalmanfilter end
 abstract type ClassicKalmanfilter <: Kalmanfilter end
 abstract type UnscentedKalmanfilter <: Kalmanfilter end
 
-"""
-Interior explain how the estimation is done:
-    δ : Observation - predict_of_movement
-    S : pre-fit residual
-    K : Optimal Kalman gain
-"""
-mutable struct Interior{T <: Real} <: ClassicKalmanfilter
-    δ::Vector{T}
-    S::Matrix{T}
-    K::Matrix{T}
-end
-Interior(row::Int, column::Int, T::DataType = Float64) = Interior{T}(zeros(T, column), zeros(T, column, column), zeros(T, row, column))
 
 """
 Movement show how the system moves according to matrix (Linear System)
@@ -68,9 +57,9 @@ mutable struct Movement{T <: Real} <: ClassicKalmanfilter
     Q::Matrix{T}
     B::Matrix{T}
     u::Vector{T}
-    Movement(F, Q, B, u) = (size(F) == size(Q) && size(B) == (size(F)[1], length(u))) ? new{eltype(u)}(F, Q, B, u) : error("Dimension does't matc")
+    Movement(F, Q, B, u) = (size(F) == size(Q) && size(B) == (size(F, 1), length(u))) ? new{eltype(u)}(F, Q, B, u) : error("Dimension does't matc")
 end
-Movement(F::Matrix{T}, Q::Matrix{T}) where T <: Real = Movement(F, Q, zeros(T, size(Q)...), zeros(T, size(Q)[1]))
+Movement(F::Matrix{T}, Q::Matrix{T}) where T <: Real = Movement(F, Q, zeros(T, size(Q)...), zeros(T, size(Q, 1)))
 
 """
 Observation tells how the state of movement tranfer to Observation.
@@ -80,7 +69,7 @@ Observation tells how the state of movement tranfer to Observation.
 mutable struct Observation{T <: Real} <: ClassicKalmanfilter
     H::Matrix{T}
     R::Matrix{T}
-    Observation(H, R) = (size(H)[1] == size(R)[1]) ? new{eltype(H)}(H, R) : error("Dimension does't match!")
+    Observation(H, R) = (size(H, 1) == size(R, 1)) ? new{eltype(H)}(H, R) : error("Dimension does't match!")
 end
 
 """
@@ -89,38 +78,23 @@ check out the argument of kalman filter.
 """
 function check_kalman end
 
-function check_kalman(x0::Vector{T}, P0::Matrix{T}, record::Vector{T}, intr::Interior{T}, move::Movement{T}, obsv::Observation{T}) where T <: Real
+function check_kalman(x0::Vector{T}, P0::Matrix{T}, record::Vector{T},  move::Movement{T}, obsv::Observation{T}) where T <: Real
     move_dims = length(x0)
     obsv_dims = length(record)
 
     size(P0) == (move_dims, move_dims) || println("DimensionMissmatch : initial covariance P0 should have $(move_dims) rows and $(move_dims) columns")
-    size(move.F)[1] == move_dims || println("DimensionMissmatch : Movement struct should have $(move_dims) rows")
-    size(obsv.R)[1] == obsv_dims || println("DimensionMissmatch : Observation struct should have $(obsv_dims) rows")
-    size(intr.K)[1] == move_dims || println("DimensionMissmatch : Interior.K should have $(move_dims) rows")
-    size(obsv.H)[2] == move_dims || println("DimensionMissmatch : Observation.H should have $(move_dims) columns")
-    length(intr.δ) == obsv_dims || println("DimensionMissmatch : Interior struct should have $(move_dims) rows and $(obsv_dims) columns")
+    size(move.F, 1) == move_dims || println("DimensionMissmatch : Movement struct should have $(move_dims) rows")
+    size(obsv.R, 1) == obsv_dims || println("DimensionMissmatch : Observation struct should have $(obsv_dims) rows")
+    size(obsv.H, 1) == move_dims || println("DimensionMissmatch : Observation.H should have $(move_dims) columns")
 end
 
-"""
-reset_kalman!(intr::Interior{T}, δ::Vector{T}, S::Matrix{T}, K::Matrix{T})
-update the argument of Interior
-"""
-function reset_kalman! end
-
-function reset_kalman!(intr::Interior{T}, δ::Vector{T}, S::Matrix{T}, K::Matrix{T}) where T <: Real
-    intr.δ = δ
-    intr.S = S
-    intr.K = K 
-end
 
 """
-x_predict, P_predict = predict_kalman(x_update, P_update, move)
+x_predict, P_predict = (move::Movement{T})(x_update::Vector{T}, P_update::Matrix{T})
 return the prediction of x and P when we know the movement infornmation.
 """
 
-function predict_kalman end
-
-function predict_kalman(x_update::Vector{T}, P_update::Matrix{T}, move::Movement{T}) where T <: Real
+function (move::Movement{T})(x_update::Vector{T}, P_update::Matrix{T}) where T <: Real
     x_predict = move.F * x_update + move.B * move.u
     P_predict = move.F * P_update * transpose(move.F) + move.Q
     return (x_predict, P_predict)
@@ -136,23 +110,108 @@ function eye(dim::Int, T::DataType = Float64)
 end
 
 """
-x_update, P_update = update_kalman!(x_predict, P_predict, record, obsv, Interior)
-return the update for x and P, at the same time, update the arguments of Interior.
+x_update, P_update, K = (obsv::Observation{T})(x_predict::Vector{T}, P_predict::Matrix{T}, record::Vector{T})
+return the update for x , P and K.
 """
-function update_kalman! end
 
-function update_kalman!(x_predict::Vector{T}, P_predict::Matrix{T}, record::Vector{T}, obsv::Observation{T}, intr::Interior{T}) where T <: Real
+function (obsv::Observation{T})(x_predict::Vector{T}, P_predict::Matrix{T}, record::Vector{T}) where T <: Real
     δ = record - obsv.H * x_predict
     S = obsv.H * P_predict * transpose(obsv.H) + obsv.R
     K = P_predict * transpose(obsv.H) / S
     
-    reset_kalman!(intr, δ, S, K)
     
     I = eye(length(x_predict), T)
     x_update = x_predict + K * δ
     P_update = (I - K * obsv.H) * P_predict
     
-    return x_update, P_update
+    return x_update, P_update, K
+end
+
+"""
+mutable struct Sigma{T <: Real} <: UnscentedKalmanfilter
+    storage arguments α, β, κ
+    default β = 2, κ = 3 - N
+"""
+mutable struct Sigma{T <: Real} <: UnscentedKalmanfilter
+    α::T
+    β::T
+    κ::T
+end
+Sigma(α::T, β::T, κ::T) where T <: Real = Sigma{typeof(α)}(α, β, κ)
+Sigma(α::T, dims::Int) where T<: Real = Sigma(α, 2.0, 3.0 - dims)
+
+"""
+mutable struct Noise{T <: Real} <: UnscentedKalmanfilter
+    define movement noise and observation noise
+"""
+mutable struct Noise{T <: Real} <: UnscentedKalmanfilter
+    Q::Matrix{T}
+    R::Matrix{T}
+    Noise(Q, R) = new{eltype(Q)}(Q, R) 
+end
+
+"""
+function (sigma::Sigma{T})(x::Vector{T}, P::Matrix{T}) where T <: Real
+    sigmaPoints, wm0, wc0, wm, wc = sigma(x, P)
+    generate sigma points and its weights.
+"""
+function (sigma::Sigma{T})(x::Vector{T}, P::Matrix{T}) where T <: Real
+    α, β, κ = sigma.α, sigma.β, sigma.κ
+    N = length(x)
+    Lmatrix = LAB.cholesky(P |> LAB.Hermitian).L
+    λ = α^2 * (N + κ) - N
+
+    wm0 = λ / (N + λ)
+    wm = 0.5 / (N + λ)
+    wc0 = λ / (N + λ) + 1 - α^2 + β
+    wc = 0.5 / (N + λ)
+
+    sigmaPoints = Matrix{T}(undef, N, 2*N)
+
+    @inbounds for i in 1:N
+        sigmaPoints[:, 2*i-1] = x + α * √(N + κ) * Lmatrix[:, i]
+        sigmaPoints[:, 2*i] = x - α * √(N + κ) * Lmatrix[:, i]
+    end
+
+    return sigmaPoints, wm0, wc0, wm, wc
+
+end
+
+function (noise::Noise{T})(x::Vector{T}, P::Matrix{T}, zrecord::Vector{T}, sigma::Sigma{T}, mtransform, otransform) where T <: Real
+    N = length(x)
+    Q, R = noise.Q, noise.R
+
+    sigmaPoints, wm0, wc0, wm, wc = sigma(x, P)
+    y0 = mtransform(x)
+    ylist = mapslices(mtransform, sigmaPoints, dims = 1)
+
+    # movement forecast, count ymean, pymean as forecast 
+    ymean = wm0 * y0 + ylist*fill(wm, 2*N)
+    
+    δylist = ylist .- ymean
+    δy = y0 - ymean 
+    pymean = wc0 * δy * transpose(δy) + wc * δylist * transpose(δylist) + Q
+
+    # updata for observation
+    z0 = otransform(y0)
+    zlist = mapslices(otransform, ylist, dims = 1)
+
+    zmean = wm0 * z0 + zlist*fill(wm, 2*N)
+
+    δzlist = zlist .- zmean
+    δz = z0 - zmean 
+    pzmean = wc0 * δz * transpose(δz) + wc * δzlist * transpose(δzlist) + R
+    pxzmean = wc0 * δy * transpose(δz) + wc * δylist * transpose(δzlist) 
+    K = pxzmean / pzmean
+
+    δx = zrecord - zmean
+
+    x_update = ymean + K*δx
+    P_update = pymean - K*pzmean*transpose(K)
+
+    return x_update, P_update, K
+
 end
 
 end
+
