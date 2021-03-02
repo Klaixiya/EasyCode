@@ -201,12 +201,12 @@ function (noise::Noise{T})(x::Vector{T}, P::Matrix{T}, zrecord::Vector{T}, sigma
     δzlist = zlist .- zmean
     δz = z0 - zmean 
     pzmean = wc0 * δz * transpose(δz) + wc * δzlist * transpose(δzlist) + R
-    pxzmean = wc0 * δy * transpose(δz) + wc * δylist * transpose(δzlist) 
-    K = pxzmean / pzmean
+    pyzmean = wc0 * δy * transpose(δz) + wc * δylist * transpose(δzlist) 
+    K = pyzmean / pzmean
 
-    δx = zrecord - zmean
+    δzmean = zrecord - zmean
 
-    x_update = ymean + K*δx
+    x_update = ymean + K*δzmean
     P_update = pymean - K*pzmean*transpose(K)
 
     return x_update, P_update, K

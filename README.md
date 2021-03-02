@@ -2,6 +2,41 @@
 
 Something tiny and funny！
 
+## Macro to
+
+I think the  */.*  in the wolfram language is a useful grammar because it separates symbolic representation and assignment. Such as:
+
+```mathematica
+Solve[a x^2 + b x + c == 0, x]/.{a->1, b->2, c->1}
+```
+
+So I do want to accomplish similar grammar and call it  "@to"
+
+Let's see
+
+```julia
+@to sin(a) * b  (a => 1, b => 2)
+out[1]= 1.682941969615793
+
+@to cos(a) * sin(b) {a => 1, b => 2}
+out[2]= 0.49129549643388193
+
+a = 3
+b = 4
+@to x * y [x => a, y => b]
+out[3]= 12
+
+using Plots
+@to plot(θ, r, proj = :polar, m = 2) {θ => range(0, 1.5π, length = 100), r => abs.(0.1 .* randn(100) .+ sin.(3θ))}
+
+```
+
+It's OK to use  *()* , *{}*  and *[]*  to package your assignment statement.
+
+Grammar Test is incomplete, when you are using this macro, please pay attention!
+
+
+
 ## Classic Kalman Filter
 
 Now the KalmanFilter.jl just include the Classic Kalman Filter, so it is limited. 
